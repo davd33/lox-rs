@@ -1,4 +1,23 @@
+use std::collections::VecDeque;
 use derive_more::Display;
+
+#[derive(Display)]
+enum ErrorKind {
+	ScannerError,
+}
+
+struct AppError {
+	message: String,
+	kind: ErrorKind,
+}
+
+impl AppError {
+	fn new(message: &str, kind: ErrorKind) -> AppError {
+		AppError {
+			message: message.to_string(), kind,
+		}
+	}
+}
 
 struct Scanner {
 	source: String,
@@ -6,6 +25,7 @@ struct Scanner {
 	start: usize,
 	line: usize,
 	tokens: Vec<Token>,
+	errors: VecDeque<AppError>
 }
 
 impl Scanner {
@@ -16,7 +36,12 @@ impl Scanner {
 			start: 0,
 			line: 1,
 			tokens: vec![],
+			errors: VecDeque::new(),
 		}
+	}
+
+	fn has_errors(&self) -> bool {
+		!self.errors.is_empty()
 	}
 
 	fn advance(&mut self) -> Option<char> {
@@ -39,6 +64,12 @@ impl Scanner {
 			           self.line));
 	}
 
+	fn print_errors(&mut self) {
+		while let Some(e) = self.errors.pop_front() {
+			println!("{} ({})", e.message, e.kind);
+		}
+	}
+
 	fn scan_token(&mut self) {
 		if let Some(c) = self.advance() {
 			match c {
@@ -52,7 +83,7 @@ impl Scanner {
 				'+' => self.add_token(TokenType::Plus),
 				';' => self.add_token(TokenType::Semicolon),
 				'*' => self.add_token(TokenType::Star),
-				_ => self.add_token(TokenType::Unknown),
+				_ => self.errors.push_back(AppError::new("Unknown token!", ErrorKind::ScannerError)),
 			}
 		}
 	}
@@ -62,7 +93,6 @@ impl Scanner {
 	}
 
 	pub fn scan_tokens(&mut self) -> Vec<Token> {
-		println!("Scanning Lox code: \n{}", &self.source);
 		let mut result = vec![];
 
 		while !self.is_at_end() {
@@ -71,6 +101,8 @@ impl Scanner {
 		}
 
 		result.push(Token::new(TokenType::Eof, String::new(), None, 0,));
+
+		self.print_errors();
 
 		result
 	}
@@ -95,7 +127,7 @@ enum TokenType {
 	And, Class, Else, False, Fun, For, If, Nil, Or,
 	Print, Return, Super, This, True, Var, While,
 
-	Eof, Unknown
+	Eof,
 }
 
 struct Literal;
