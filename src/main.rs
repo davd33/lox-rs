@@ -9,12 +9,13 @@ enum ErrorKind {
 struct AppError {
 	message: String,
 	kind: ErrorKind,
+	line: usize,
 }
 
 impl AppError {
-	fn new(message: &str, kind: ErrorKind) -> AppError {
+	fn new(line: usize, message: &str, kind: ErrorKind) -> AppError {
 		AppError {
-			message: message.to_string(), kind,
+			message: message.to_string(), kind, line
 		}
 	}
 }
@@ -44,12 +45,60 @@ impl Scanner {
 		!self.errors.is_empty()
 	}
 
+	fn inc_current(&mut self, c: char) {
+		self.current += c.len_utf8();
+	}
+
+	fn current_char(&self) -> Option<char> {
+		self.source[self.current..].chars().next()
+	}
+
 	fn advance(&mut self) -> Option<char> {
-		let c = self.source[self.current..].chars().next();
+		let c = self.current_char();
 		if let Some(c) = c {
-			self.current += c.len_utf8();
+			self.inc_current(c);
 		}
 		c
+	}
+
+	fn _match(&mut self, ch: char) -> bool {
+		if self.is_at_end() {
+			return false;
+		}
+
+		if let Some(c) = self.current_char() {
+			if c != ch {
+				return false;
+			}
+			self.inc_current(c);
+		}
+
+		true
+	}
+
+	fn peek(&self) -> Option<char> {
+		self.current_char()
+	}
+
+	fn string(&mut self)  {
+		if let Some(ch) = self.peek() {
+			while ch != '\'' && !self.is_at_end() {
+				if ch == '\n' {
+					self.line += 1;
+				}
+				self.advance();
+			}
+
+			if self.is_at_end() {
+				self.new_error("Unterminated string.", self.line);
+				return;
+			}
+
+			self.advance();
+
+			let value = self.source[self.start+1..self.current-1].to_string();
+			self.add_token_literal(TokenType::String, Some(Literal { value }));
+		}
 	}
 
 	fn add_token(&mut self, _type: TokenType) {
@@ -66,8 +115,12 @@ impl Scanner {
 
 	fn print_errors(&mut self) {
 		while let Some(e) = self.errors.pop_front() {
-			println!("{} ({})", e.message, e.kind);
+			println!("{}: {} ({})", e.line, e.message, e.kind);
 		}
+	}
+
+	fn new_error(&mut self, message: &str, line: usize) {
+		self.errors.push_back(AppError::new(line, message, ErrorKind::ScannerError));
 	}
 
 	fn scan_token(&mut self) {
@@ -83,7 +136,35 @@ impl Scanner {
 				'+' => self.add_token(TokenType::Plus),
 				';' => self.add_token(TokenType::Semicolon),
 				'*' => self.add_token(TokenType::Star),
-				_ => self.errors.push_back(AppError::new("Unknown token!", ErrorKind::ScannerError)),
+				'!' => {
+					let token_type = if self._match('=')  { TokenType::BangEqual } else { TokenType::Bang };
+					self.add_token(token_type);
+				},
+				'=' => {
+					let token_type = if self._match('=')  { TokenType::EqualEqual } else { TokenType::Equal };
+					self.add_token(token_type);
+				},
+				'>' => {
+					let token_type = if self._match('=')  { TokenType::GreaterEqual } else { TokenType::Greater };
+					self.add_token(token_type);
+				},
+				'<' => {
+					let token_type = if self._match('=')  { TokenType::LessEqual } else { TokenType::Less };
+					self.add_token(token_type);
+				},
+				'/' => {
+					if self._match('/') {
+						while self.peek().is_some_and(|c| c != '\n') && !self.is_at_end() {
+							self.advance();
+						}
+					} else {
+						self.add_token(TokenType::Slash);
+					}
+				},
+				' ' | '\r' | '\t' => {},
+				'\n' => self.line += 1,
+				'\'' => self.string(),
+				_ => self.new_error("Unknown token!", self.line),
 			}
 		}
 	}
@@ -100,7 +181,7 @@ impl Scanner {
 			self.scan_token();
 		}
 
-		result.push(Token::new(TokenType::Eof, String::new(), None, 0,));
+		result.push(Token::new(TokenType::Eof, String::new(), None, self.line,));
 
 		self.print_errors();
 
@@ -130,7 +211,9 @@ enum TokenType {
 	Eof,
 }
 
-struct Literal;
+struct Literal {
+	value: String,
+}
 
 #[derive(Display)]
 #[display("{line:} {lexeme} ({_type})")]
