@@ -1,5 +1,5 @@
-use std::collections::VecDeque;
 use derive_more::Display;
+use std::collections::VecDeque;
 
 #[derive(Display)]
 enum ErrorKind {
@@ -53,6 +53,10 @@ impl Scanner {
 		self.source[self.current..].chars().next()
 	}
 
+	fn next_char(&self) -> Option<char> {
+		self.source[self.current+1..].chars().next()
+	}
+
 	fn advance(&mut self) -> Option<char> {
 		let c = self.current_char();
 		if let Some(c) = c {
@@ -80,6 +84,10 @@ impl Scanner {
 		self.current_char()
 	}
 
+	fn peek_next(&self) -> Option<char> {
+		self.next_char()
+	}
+
 	fn string(&mut self)  {
 		if let Some(ch) = self.peek() {
 			while ch != '\'' && !self.is_at_end() {
@@ -97,30 +105,37 @@ impl Scanner {
 			self.advance();
 
 			let value = self.source[self.start+1..self.current-1].to_string();
-			self.add_token_literal(TokenType::String, Some(Literal { value }));
+			self.add_token_literal(TokenType::String, Some(Literal::String(value)));
 		}
 	}
 
-	fn add_token(&mut self, _type: TokenType) {
-		self.add_token_literal(_type, None);
+	fn is_digit(&self, ch: char) -> bool {
+		ch >= '0' && ch <= '9'
 	}
 
-	fn add_token_literal(&mut self, _type: TokenType, literal: Option<Literal>) {
-		self.tokens.push(
-			Token::new(_type,
-			           self.source[self.start..self.current].to_string(),
-			           literal,
-			           self.line));
-	}
-
-	fn print_errors(&mut self) {
-		while let Some(e) = self.errors.pop_front() {
-			println!("{}: {} ({})", e.line, e.message, e.kind);
+	fn number(&mut self) {
+		while self.peek().is_some_and(|ch| self.is_digit(ch)) {
+			self.advance();
 		}
-	}
 
-	fn new_error(&mut self, message: &str, line: usize) {
-		self.errors.push_back(AppError::new(line, message, ErrorKind::ScannerError));
+		if let Some(ch) = self.peek() {
+			if ch == '.' && self.peek_next().is_some_and(|ch| self.is_digit(ch)) {
+				self.advance();
+				while self.peek().is_some_and(|ch| self.is_digit(ch)) {
+					self.advance();
+				}
+			}
+		}
+
+		match self.source[self.start..self.current].to_string().parse::<f64>() {
+			Ok(value) => {
+				self.add_token_literal(TokenType::Number, Some(Literal::Number(value)));
+			}
+			Err(_) => {
+				self.new_error("Not a number!", self.line);
+			}
+		}
+
 	}
 
 	fn scan_token(&mut self) {
@@ -164,9 +179,32 @@ impl Scanner {
 				' ' | '\r' | '\t' => {},
 				'\n' => self.line += 1,
 				'\'' => self.string(),
+				d if self.is_digit(d) => self.number(),
 				_ => self.new_error("Unknown token!", self.line),
 			}
 		}
+	}
+
+	fn add_token(&mut self, _type: TokenType) {
+		self.add_token_literal(_type, None);
+	}
+
+	fn add_token_literal(&mut self, _type: TokenType, literal: Option<Literal>) {
+		self.tokens.push(
+			Token::new(_type,
+			           self.source[self.start..self.current].to_string(),
+			           literal,
+			           self.line));
+	}
+
+	fn print_errors(&mut self) {
+		while let Some(e) = self.errors.pop_front() {
+			println!("{}: {} ({})", e.line, e.message, e.kind);
+		}
+	}
+
+	fn new_error(&mut self, message: &str, line: usize) {
+		self.errors.push_back(AppError::new(line, message, ErrorKind::ScannerError));
 	}
 
 	fn is_at_end(&self) -> bool {
@@ -211,8 +249,9 @@ enum TokenType {
 	Eof,
 }
 
-struct Literal {
-	value: String,
+enum Literal {
+	String(String),
+	Number(f64),
 }
 
 #[derive(Display)]
