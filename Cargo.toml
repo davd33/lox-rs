@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 derive_more = { version = "2.1.1", features = ["full"]}
-
+phf = { version = "0.13.1" , features = ["macros"]}

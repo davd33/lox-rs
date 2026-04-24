@@ -1,5 +1,6 @@
 use derive_more::Display;
 use std::collections::VecDeque;
+use phf::phf_map;
 
 #[derive(Display)]
 enum ErrorKind {
@@ -19,6 +20,25 @@ impl AppError {
 		}
 	}
 }
+
+const KEYWORDS: phf::Map<&'static str, TokenType> = phf_map!(
+	"and" => TokenType::And,
+	"class" => TokenType::Class,
+	"else" => TokenType::Else,
+	"false" => TokenType::False,
+	"for" => TokenType::For,
+	"fun" => TokenType::Fun,
+	"if" => TokenType::If,
+	"nil" => TokenType::Nil,
+	"or" => TokenType::Or,
+	"print" => TokenType::Print,
+	"return" => TokenType::Return,
+	"super" => TokenType::Super,
+	"this" => TokenType::This,
+	"true" => TokenType::True,
+	"var" => TokenType::Var,
+	"while" => TokenType::While
+);
 
 struct Scanner {
 	source: String,
@@ -89,28 +109,32 @@ impl Scanner {
 	}
 
 	fn string(&mut self)  {
-		if let Some(ch) = self.peek() {
-			while ch != '\'' && !self.is_at_end() {
-				if ch == '\n' {
-					self.line += 1;
-				}
-				self.advance();
+		while self.peek().is_some_and(|ch| ch != '\'') && !self.is_at_end() {
+			if self.peek().is_some_and(|ch| ch == '\n') {
+				self.line += 1;
 			}
-
-			if self.is_at_end() {
-				self.new_error("Unterminated string.", self.line);
-				return;
-			}
-
 			self.advance();
-
-			let value = self.source[self.start+1..self.current-1].to_string();
-			self.add_token_literal(TokenType::String, Some(Literal::String(value)));
 		}
+
+		if self.is_at_end() {
+			self.new_error("Unterminated string.", self.line);
+			return;
+		}
+
+		self.advance();
+
+		let value = self.source[self.start+1..self.current-1].to_string();
+		self.add_token_literal(TokenType::String, Some(Literal::String(value)));
 	}
 
 	fn is_digit(&self, ch: char) -> bool {
 		ch >= '0' && ch <= '9'
+	}
+
+	fn is_alpha(&self, ch: char) -> bool {
+		(ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch == '_')
 	}
 
 	fn number(&mut self) {
@@ -136,6 +160,20 @@ impl Scanner {
 			}
 		}
 
+	}
+
+	fn identifier(&mut self) {
+		while self.peek().is_some_and(|ch| self.is_aplha_numeric(ch)) {
+			self.advance();
+		}
+
+		let text = self.source[self.start..self.current].to_string();
+		let tt: Option<TokenType> = KEYWORDS.get::<str>(&text).cloned();
+		self.add_token(tt.unwrap_or(TokenType::Identifier));
+	}
+
+	fn is_aplha_numeric(&self, ch: char) -> bool {
+		self.is_alpha(ch) || self.is_digit(ch)
 	}
 
 	fn scan_token(&mut self) {
@@ -180,6 +218,7 @@ impl Scanner {
 				'\n' => self.line += 1,
 				'\'' => self.string(),
 				d if self.is_digit(d) => self.number(),
+				a if self.is_alpha(a) => self.identifier(),
 				_ => self.new_error("Unknown token!", self.line),
 			}
 		}
@@ -211,23 +250,19 @@ impl Scanner {
 		self.current >= self.source.chars().count()
 	}
 
-	pub fn scan_tokens(&mut self) -> Vec<Token> {
-		let mut result = vec![];
-
+	pub fn scan_tokens(&mut self) {
 		while !self.is_at_end() {
 			self.start = self.current;
 			self.scan_token();
 		}
 
-		result.push(Token::new(TokenType::Eof, String::new(), None, self.line,));
+		self.tokens.push(Token::new(TokenType::Eof, String::new(), None, self.line,));
 
 		self.print_errors();
-
-		result
 	}
 }
 
-#[derive(Display)]
+#[derive(Display, Clone)]
 enum TokenType {
 	// Single-character tokens.
 	LeftParen, RightParen, LeftBrace, RightBrace,
@@ -280,13 +315,17 @@ impl Token {
 
 fn run(source: String) {
 	let mut scanner = Scanner::new(source);
-	let tokens = scanner.scan_tokens();
+	scanner.scan_tokens();
 
-	for t in tokens.iter() {
+	for t in scanner.tokens.iter() {
 		println!("{t}");
 	}
 }
 
 fn main() {
-	run("print 'hello world'".to_string());
+	run("print 'hello world';
+	     print 'how are you?';
+	     var x = 22;
+	     if x == 22 { print yes }"
+		.to_string());
 }
